@@ -281,7 +281,7 @@ static void raise_mmu_exception(CPURISCVState *env, target_ulong address,
     default:
         g_assert_not_reached();
     }
-    env->badaddr = address;
+    env->tval = address;
 }
 
 hwaddr riscv_cpu_get_phys_page_debug(CPUState *cs, vaddr addr)
@@ -316,7 +316,7 @@ void riscv_cpu_do_unaligned_access(CPUState *cs, vaddr addr,
     default:
         g_assert_not_reached();
     }
-    env->badaddr = addr;
+    env->tval = addr;
     do_raise_exception_err(env, cs->exception_index, retaddr);
 }
 
@@ -437,7 +437,7 @@ void riscv_cpu_do_interrupt(CPUState *cs)
     target_ulong bit = fixed_cause;
     target_ulong deleg = env->medeleg;
 
-    int hasbadaddr =
+    int hastval =
         (fixed_cause == RISCV_EXCP_INST_ADDR_MIS) ||
         (fixed_cause == RISCV_EXCP_INST_ACCESS_FAULT) ||
         (fixed_cause == RISCV_EXCP_LOAD_ADDR_MIS) ||
@@ -453,24 +453,18 @@ void riscv_cpu_do_interrupt(CPUState *cs)
         bit &= ~((target_ulong)1 << (TARGET_LONG_BITS - 1));
     }
 
+    if (RISCV_DEBUG_INTERRUPT) {
+        qemu_log_mask(LOG_TRACE, "core " TARGET_FMT_ld
+            ": tval 0x" TARGET_FMT_lx, env->mhartid, env->tval);
+    }
+
     if (env->priv <= PRV_S && bit < 64 && ((deleg >> bit) & 1)) {
         /* handle the trap in S-mode */
         /* No need to check STVEC for misaligned - lower 2 bits cannot be set */
         env->pc = env->stvec;
         env->scause = fixed_cause;
         env->sepc = backup_epc;
-
-        if (hasbadaddr) {
-            if (RISCV_DEBUG_INTERRUPT) {
-                qemu_log_mask(LOG_TRACE, "core " TARGET_FMT_ld
-                    ": badaddr 0x" TARGET_FMT_lx, env->mhartid, env->badaddr);
-            }
-            env->sbadaddr = env->badaddr;
-        } else {
-            /* otherwise we must clear sbadaddr/stval
-             * todo: support populating stval on illegal instructions */
-            env->sbadaddr = 0;
-        }
+        env->stval = hastval ? env->tval : 0;
 
         target_ulong s = env->mstatus;
         s = set_field(s, MSTATUS_SPIE, env->priv_ver >= PRIV_VERSION_1_10_0 ?
@@ -484,18 +478,7 @@ void riscv_cpu_do_interrupt(CPUState *cs)
         env->pc = env->mtvec;
         env->mepc = backup_epc;
         env->mcause = fixed_cause;
-
-        if (hasbadaddr) {
-            if (RISCV_DEBUG_INTERRUPT) {
-                qemu_log_mask(LOG_TRACE, "core " TARGET_FMT_ld
-                    ": badaddr 0x" TARGET_FMT_lx, env->mhartid, env->badaddr);
-            }
-            env->mbadaddr = env->badaddr;
-        } else {
-            /* otherwise we must clear mbadaddr/mtval
-             * todo: support populating mtval on illegal instructions */
-            env->mbadaddr = 0;
-        }
+        env->mtval = hastval ? env->tval : 0;
 
         target_ulong s = env->mstatus;
         s = set_field(s, MSTATUS_MPIE, env->priv_ver >= PRIV_VERSION_1_10_0 ?

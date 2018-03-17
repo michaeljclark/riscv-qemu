@@ -91,10 +91,27 @@ static void generate_exception(DisasContext *ctx, int excp)
     ctx->bstate = BS_BRANCH;
 }
 
-static void generate_exception_mbadaddr(DisasContext *ctx, int excp)
+static void generate_exception_badinst(DisasContext *ctx, int excp)
+{
+#if defined TARGET_RISCV32
+    TCGv_i32 mtval_tmp = tcg_const_i32(ctx->opcode);
+    tcg_gen_st_i32(mtval_tmp, cpu_env, offsetof(CPURISCVState, tval));
+    tcg_temp_free_i32(mtval_tmp);
+#elif defined(TARGET_RISCV64)
+    TCGv_i64 mtval_tmp = tcg_const_i64(ctx->opcode);
+    tcg_gen_st_i64(mtval_tmp, cpu_env, offsetof(CPURISCVState, tval));
+    tcg_temp_free_i64(mtval_tmp);
+#endif
+    TCGv_i32 helper_tmp = tcg_const_i32(excp);
+    gen_helper_raise_exception(cpu_env, helper_tmp);
+    tcg_temp_free_i32(helper_tmp);
+    ctx->bstate = BS_BRANCH;
+}
+
+static void generate_exception_badaddr(DisasContext *ctx, int excp)
 {
     tcg_gen_movi_tl(cpu_pc, ctx->pc);
-    tcg_gen_st_tl(cpu_pc, cpu_env, offsetof(CPURISCVState, badaddr));
+    tcg_gen_st_tl(cpu_pc, cpu_env, offsetof(CPURISCVState, tval));
     TCGv_i32 helper_tmp = tcg_const_i32(excp);
     gen_helper_raise_exception(cpu_env, helper_tmp);
     tcg_temp_free_i32(helper_tmp);
@@ -110,12 +127,12 @@ static void gen_exception_debug(void)
 
 static void gen_exception_illegal(DisasContext *ctx)
 {
-    generate_exception(ctx, RISCV_EXCP_ILLEGAL_INST);
+    generate_exception_badinst(ctx, RISCV_EXCP_ILLEGAL_INST);
 }
 
 static void gen_exception_inst_addr_mis(DisasContext *ctx)
 {
-    generate_exception_mbadaddr(ctx, RISCV_EXCP_INST_ADDR_MIS);
+    generate_exception_badaddr(ctx, RISCV_EXCP_INST_ADDR_MIS);
 }
 
 static inline bool use_goto_tb(DisasContext *ctx, target_ulong dest)
