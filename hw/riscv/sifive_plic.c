@@ -444,10 +444,7 @@ static void sifive_plic_realize(DeviceState *dev, Error **errp)
     plic->claimed = g_new0(uint32_t, plic->bitfield_words);
     plic->enable = g_new0(uint32_t, plic->bitfield_words * plic->num_addrs);
     sysbus_init_mmio(SYS_BUS_DEVICE(dev), &plic->mmio);
-    plic->irqs = g_new0(qemu_irq, plic->num_sources + 1);
-    for (i = 0; i <= plic->num_sources; i++) {
-        plic->irqs[i] = qemu_allocate_irq(sifive_plic_irq_request, plic, i);
-    }
+    qdev_init_gpio_in(dev, sifive_plic_irq_request, plic->num_sources);
 
     /* We can't allow the supervisor to control SEIP as this would allow the
      * supervisor to clear a pending external interrupt which will result in
